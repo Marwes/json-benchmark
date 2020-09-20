@@ -66,8 +66,7 @@ macro_rules! bench_file {
             let dur = timer::bench(num_trials, || {
                 let parsed: $dom = $parse_dom(&contents).unwrap();
                 parsed
-            });
-            print!("{:6} MB/s", throughput(dur, contents.len()));
+            }); print!("{:6} MB/s", throughput(dur, contents.len()));
             io::stdout().flush().unwrap();
         }
         #[cfg(not(feature = "parse-dom"))]
@@ -194,7 +193,119 @@ macro_rules! bench_file_simd_json {
     }
 }
 
+#[cfg(feature = "criterion")]
+macro_rules! bench_criterion {
+    {
+        path: $path:expr,
+        structure: $structure:ty,
+        dom: $dom:ty,
+        parse_dom: $parse_dom:expr,
+        stringify_dom: $stringify_dom:expr,
+        $(
+            parse_struct: $parse_struct:expr,
+            stringify_struct: $stringify_struct:expr,
+        )*
+    } => {
+        let mut c = criterion::Criterion::default()
+                .configure_from_args();
+
+        let contents = {
+            let mut vec = Vec::new();
+            File::open($path).unwrap().read_to_end(&mut vec).unwrap();
+            vec
+        };
+
+        #[cfg(feature = "parse-dom")]
+        {
+            let mut group = c.benchmark_group("parse-dom");
+            group
+                .throughput(criterion::Throughput::Bytes(contents.len() as u64))
+                .bench_function($path, |b| {
+                    b.iter(|| {
+                        let parsed: $dom = $parse_dom(&contents).unwrap();
+                        parsed
+                    });
+                });
+            group.finish();
+        }
+
+        #[cfg(feature = "stringify-dom")]
+        {
+            let len = contents.len();
+            let dom: $dom = $parse_dom(&contents).unwrap();
+            let mut serialized = Vec::new();
+            $stringify_dom(&mut serialized, &dom).unwrap();
+
+            let mut group = c.benchmark_group("stringify-dom");
+            group
+                .throughput(criterion::Throughput::Bytes(serialized.len() as u64))
+                .bench_function($path, |b| {
+                    let mut out = Vec::with_capacity(len);
+                    b.iter(|| {
+                        out.clear();
+                        $stringify_dom(&mut out, &dom).unwrap()
+                    });
+                });
+            group.finish();
+        }
+
+        $(
+            #[cfg(feature = "parse-struct")]
+            {
+                let mut group = c.benchmark_group("parse-struct");
+                group
+                    .throughput(criterion::Throughput::Bytes(contents.len() as u64))
+                    .bench_function($path, |b| {
+                        b.iter(|| {
+                            let parsed: $structure = $parse_struct(&contents).unwrap();
+                            parsed
+                        })
+                    });
+                group.finish();
+            }
+
+            #[cfg(feature = "stringify-struct")]
+            {
+                let len = contents.len();
+                let parsed: $structure = $parse_struct(&contents).unwrap();
+                let mut serialized = Vec::new();
+                $stringify_dom(&mut serialized, &parsed).unwrap();
+                let mut group = c.benchmark_group("stringify-struct");
+                group
+                    .throughput(criterion::Throughput::Bytes(serialized.len() as u64))
+                    .bench_function($path, |b| {
+                        let mut out = Vec::with_capacity(len);
+                        b.iter(|| {
+                            $stringify_struct(&mut out, &parsed).unwrap()
+                        })
+                    });
+                group.finish();
+            }
+        )*
+    }
+}
+
 fn main() {
+    #[cfg(feature = "criterion")]
+    {
+        bench! {
+            name: "serde_json_criterion",
+            bench: bench_criterion,
+            dom: serde_json::Value,
+            parse_dom: serde_json_parse_dom,
+            stringify_dom: serde_json::to_writer,
+            parse_struct: serde_json_parse_struct,
+            stringify_struct: serde_json::to_writer,
+        }
+
+        criterion::Criterion::default()
+            .configure_from_args()
+            .final_summary();
+        if true {
+            return;
+        }
+    }
+
     print!("{:>35}{:>24}", "DOM", "STRUCT");
 
     #[cfg(feature = "lib-serde")]

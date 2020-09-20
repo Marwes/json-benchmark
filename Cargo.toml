@@ -4,8 +4,8 @@ version = "0.0.1"
 authors = ["dtolnay@gmail.com"]
 edition = "2018"
 publish = false
-
 [dependencies]
+criterion = { version = "0.3", optional = true }
 getopts = "0.2"
 jemallocator = "0.3"
 json = { version = "0.12", optional = true }
@@ -41,3 +41,7 @@ panic = "abort"
 
 [workspace]
 members = ["binary"]
+
+[patch.crates-io]
+# serde = { path = "../serde/serde" }
+serde_json = { path = "../json" }
